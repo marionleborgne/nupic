@@ -210,6 +210,8 @@ class KNNAnomalyClassifierRegion(PyRegion):
     # Parameters
     self.trainRecords = trainRecords
     self.anomalyThreshold = anomalyThreshold
+    #TODO: remove this line it's a hack to avoid auto-classification 
+    self.anomalyThreshold = 1.1
     self.cacheSize = cacheSize
     self.classificationVectorType = classificationVectorType
 
