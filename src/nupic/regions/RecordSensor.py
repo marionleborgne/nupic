@@ -49,7 +49,8 @@ class RecordSensor(PyRegion):
   correspond to entries in the dictionary or attributes of the object. For
   example, a DataSource might return:
 
-    dict(date="02-01-2010 23:12:23", amount=4.95, country="US", _reset=0, _sequenceId=0)
+    dict(date="02-01-2010 23:12:23", amount=4.95, country="US", _reset=0,
+    _sequenceId=0)
 
   or an object with attributes "date", "amount" and "country".
 
@@ -102,7 +103,8 @@ class RecordSensor(PyRegion):
       outputs=dict(
         dataOut=dict(
           description="Encoded data",
-          dataType="Real32", # very inefficient for bits, but that is what we use now
+          dataType="Real32",
+          # very inefficient for bits, but that is what we use now
           count=0,
           regionLevel=True,
           isDefaultOutput=True),
@@ -144,7 +146,7 @@ class RecordSensor(PyRegion):
           count=0,
           regionLevel=True,
           isDefaultOutput=False),
-        ),
+      ),
       inputs=dict(
         spatialTopDownIn=dict(
           description="""The top-down input signal, generated from
@@ -164,7 +166,7 @@ class RecordSensor(PyRegion):
           regionLevel=True,
           isDefaultInput=False,
           requireSplitterMap=False),
-        ),
+      ),
       parameters=dict(
         verbosity=dict(
           description="Verbosity level",
@@ -174,19 +176,38 @@ class RecordSensor(PyRegion):
           constraints=""),
         numCategories=dict(
           description=("Total number of categories to expect from the "
-                      "FileRecordStream"),
+                       "FileRecordStream"),
           dataType="UInt32",
           accessMode="ReadWrite",
           count=1,
           constraints=""),
         topDownMode=dict(
-          description='1 if the node should do top down compute on the next call '
-                  'to compute into topDownOut (default 0).',
+          description='1 if the node should do top down compute on the next '
+                      'call '
+                      'to compute into topDownOut (default 0).',
           accessMode='ReadWrite',
           dataType='UInt32',
           count=1,
           constraints='bool'),
-        ),
+        useDataSource=dict(
+          description='1 to read from the data source. 0 otherwise.',
+          accessMode='ReadWrite',
+          dataType='UInt32',
+          count=1,
+          constraints='bool'),
+        nextInput=dict(
+          description=("Next input to process (if useDataSource == 0)"),
+          dataType="Real32",
+          accessMode="ReadWrite",
+          count=1,
+          constraints=""),
+        nextCategory=dict(
+          description=("Next category to process (if useDataSource == 0)"),
+          dataType="UInt32",
+          accessMode="ReadWrite",
+          count=1,
+          constraints=""),
+      ),
       commands=dict())
 
     return ns
@@ -211,6 +232,11 @@ class RecordSensor(PyRegion):
     # lastRecord is the last record returned. Used for debugging only
     self.lastRecord = None
 
+    # to process a custom record
+    self.useDataSource = True
+    self.nextInput = None
+    self.nextCategory = None
+
 
   def __setstate__(self, state):
     # Default value for older versions being deserialized.
@@ -222,9 +248,11 @@ class RecordSensor(PyRegion):
 
   def initialize(self, dims, splitterMaps):
     if self.encoder is None:
-      raise Exception("Unable to initialize RecordSensor -- encoder has not been set")
+      raise Exception(
+        "Unable to initialize RecordSensor -- encoder has not been set")
     if self.dataSource is None:
-      raise Exception("Unable to initialize RecordSensor -- dataSource has not been set")
+      raise Exception(
+        "Unable to initialize RecordSensor -- dataSource has not been set")
 
 
   def rewind(self):
@@ -254,7 +282,7 @@ class RecordSensor(PyRegion):
       # temporary check
       if "_reset" not in data:
         data["_reset"] = 0
-      if  "_sequenceId" not in data:
+      if "_sequenceId" not in data:
         data["_sequenceId"] = 0
       if "_category" not in data:
         data["_category"] = [None]
@@ -285,7 +313,6 @@ class RecordSensor(PyRegion):
           data['_reset'] = originalReset
         data['_reset'] = actualReset
 
-
     self.lastRecord = data
 
     return data
@@ -311,7 +338,18 @@ class RecordSensor(PyRegion):
   def compute(self, inputs, outputs):
     """Get a record from the dataSource and encode it."""
     if not self.topDownMode:
-      data = self.getNextRecord()
+
+      if self.useDataSource:
+        data = self.getNextRecord()
+      else:
+        data = {
+          '_timestamp': None, '_category': [self.nextCategory],
+          'label': self.nextCategory,
+          '_sequenceId': 0, 'y': self.nextInput,
+          'x': self._iterNum,
+          '_timestampRecordIdx': None, '_reset': 0
+          }
+
 
       # The private keys in data are standard of RecordStreamIface objects. Any
       # add'l keys are column headers from the data source.
@@ -365,11 +403,11 @@ class RecordSensor(PyRegion):
         print "     nz: (%d)" % (len(nz)), nz
         print "  encIn:", self.encoder.scalarsToStr(scalarValues)
       if self.verbosity >= 2:
-        #if hasattr(data, 'header'):
+        # if hasattr(data, 'header'):
         #  header = data.header()
-        #else:
+        # else:
         #  header = '     '.join(self.dataSource.names)
-        #print "        ", header
+        # print "        ", header
         print "   data:", str(data)
       if self.verbosity >= 3:
         decoded = self.encoder.decode(outputs["dataOut"])
@@ -402,7 +440,8 @@ class RecordSensor(PyRegion):
       # =========================================================================
 
       ## TODO: Add temporal top-down loop
-      # We get the temporal pooler's topDownOut passed through the spatial pooler
+      # We get the temporal pooler's topDownOut passed through the spatial
+      # pooler
       # as temporalTopDownIn
       temporalTopDownIn = inputs['temporalTopDownIn']
       temporalTopDownOut = self.encoder.topDownCompute(temporalTopDownIn)
@@ -418,7 +457,7 @@ class RecordSensor(PyRegion):
       self._outputValues['temporalTopDownEncodings'] = encodings
 
       assert len(spatialTopDownOut) == len(temporalTopDownOut), ("Error: "
-             "spatialTopDownOut and temporalTopDownOut should be the same size")
+                                                                 "spatialTopDownOut and temporalTopDownOut should be the same size")
 
 
   def _convertNonNumericData(self, spatialOutput, temporalOutput, output):
@@ -431,7 +470,8 @@ class RecordSensor(PyRegion):
                                 input
     temporalOutput              The results of topDownCompute() for the temporal
                                 input
-    output:                     The main dictionary of outputs passed to compute()
+    output:                     The main dictionary of outputs passed to
+    compute()
                                 It is exepected to have keys 'spatialTopDownOut'
                                 and 'temporalTopDownOut' that are mapped
                                 to numpy arrays
@@ -478,14 +518,16 @@ class RecordSensor(PyRegion):
 
     elif name == "dataOut":
       if self.encoder == None:
-        raise Exception("NuPIC requested output element count for 'dataOut' on a "
-                        "RecordSensor node, but the encoder has not been set")
+        raise Exception(
+          "NuPIC requested output element count for 'dataOut' on a "
+          "RecordSensor node, but the encoder has not been set")
       return self.encoder.getWidth()
 
     elif name == "sourceOut":
       if self.encoder == None:
         raise Exception("NuPIC requested output element count for 'sourceOut' "
-                        "on a RecordSensor node, but the encoder has not been set")
+                        "on a RecordSensor node, but the encoder has not been "
+                        "set")
       return len(self.encoder.getDescription())
 
     elif name == "categoryOut":
@@ -494,7 +536,8 @@ class RecordSensor(PyRegion):
     elif name == 'spatialTopDownOut' or name == 'temporalTopDownOut':
       if self.encoder == None:
         raise Exception("NuPIC requested output element count for 'sourceOut' "
-                        "on a RecordSensor node, but the encoder has not been set")
+                        "on a RecordSensor node, but the encoder has not been "
+                        "set")
       return len(self.encoder.getDescription())
     else:
       raise Exception("Unknown output %s" % name)
@@ -508,6 +551,11 @@ class RecordSensor(PyRegion):
     """
     if parameterName == 'topDownMode':
       self.topDownMode = parameterValue
-
+    elif parameterName == 'useDataSource':
+      self.useDataSource = parameterValue
+    elif parameterName == 'nextInput':
+      self.nextInput = parameterValue
+    elif parameterName == 'nextCategory':
+      self.nextCategory = parameterValue
     else:
       raise Exception('Unknown parameter: ' + parameterName)
